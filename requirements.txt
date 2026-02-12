@@ -1,0 +1,5 @@
+strands-agents[bidi]
+strands-agents-tools
+fastapi
+uvicorn[standard]
+websockets
