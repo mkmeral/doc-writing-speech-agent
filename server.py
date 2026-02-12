@@ -3,15 +3,19 @@
 
 Architecture:
   Browser (WebSocket) <-> FastAPI <-> BidiAgent (Nova Sonic 2)
+                                         |-- file_read, file_write, editor, shell
+                                         |-- MCP tools (GitHub, fetch, etc.)
+                                         |-- stop_conversation
                                          |
                                          v
-                                   writer_agent (Opus 4.6, agent-as-tool)
+                                   write_document (tool) -> Writer Agent (Opus 4.6)
                                      - file_read, file_write, editor, shell
                                      - MCP servers (GitHub, fetch, etc.)
 
-The bidi agent is the conversational front-end. It explores your thinking,
-asks questions, and gathers context. When you're ready to write, it calls
-the writer subagent with the accumulated context and references.
+The bidi agent has full tool access — it can read files, look up GitHub PRs,
+fetch web pages, etc. during conversation. When you're ready to write, it calls
+write_document with the FULL conversation context, and the writer subagent
+(Opus 4.6) produces the document.
 """
 
 import asyncio
@@ -96,35 +100,40 @@ Rules:
 - Be thorough but concise.
 - Save the document to the specified path using file_write.
 - If no path specified, save to ~/docs/ with a descriptive filename.
+- You have access to file tools and MCP servers (GitHub, fetch, etc.)
+  to look up additional info if needed.
 """
 
-# Global MCP clients (initialized once)
+# Global MCP clients (initialized once, shared by both bidi and writer agents)
 _mcp_clients: list[MCPClient] = []
 
 
 def get_writer_agent() -> Agent:
-    """Create a fresh writer agent with Opus 4.6 and MCP tools."""
-    model = BedrockModel(
-        model_id="global.anthropic.claude-opus-4-6-v1",
-        region_name=os.getenv("AWS_DEFAULT_REGION", "us-west-2"),
-    )
+    """Create a fresh writer agent (Opus 4.6) with MCP tools."""
+    model = BedrockModel(model_id="global.anthropic.claude-opus-4-6-v1")
     tools = [file_read, file_write, editor, shell]
     tools.extend(_mcp_clients)
     return Agent(model=model, tools=tools, system_prompt=WRITER_SYSTEM_PROMPT)
 
 
 @tool
-def write_document(context: str, instructions: str, output_path: str = "") -> str:
-    """Write a document based on conversation context and instructions.
+def write_document(prompt: str, output_path: str = "") -> str:
+    """Write a document using a powerful writer agent (Claude Opus 4.6).
 
-    This tool delegates to a powerful writer agent (Claude Opus 4.6) that has
-    access to file system tools and MCP servers (GitHub, fetch, etc.).
+    The writer agent has access to file_read, file_write, editor, shell, and
+    MCP servers (GitHub, fetch, etc.). Pass the FULL conversation context as
+    the prompt — everything the user said, all references read, all opinions
+    discussed, all links mentioned. Do NOT summarize or abstract — give the
+    writer the complete picture so it can produce the best document.
 
     Args:
-        context: The accumulated context from the conversation - what the doc
-                 is about, key points, opinions, references, file paths, links.
-        instructions: Specific writing instructions - style, structure, length,
-                      audience, format preferences.
+        prompt: The complete prompt for the writer agent. This should include:
+                - The full conversation context (what was discussed, decided)
+                - All file contents that were read via file_read
+                - The user's opinions, preferences, and style notes
+                - Specific writing instructions (structure, audience, tone)
+                - Any links, references, or data to include
+                - The desired output path
         output_path: Optional file path to save the document. If empty, the
                      writer will choose an appropriate path under ~/docs/.
 
@@ -133,46 +142,16 @@ def write_document(context: str, instructions: str, output_path: str = "") -> st
     """
     try:
         writer = get_writer_agent()
-        prompt = f"""Write a document based on the following:
-
-## Context
-{context}
-
-## Instructions
-{instructions}
-
-## Output Path
-{output_path if output_path else "Choose an appropriate path under ~/docs/"}
-
-Write the complete document and save it to the specified path.
-Return the full document content and confirm where it was saved.
-"""
+        if output_path:
+            prompt += f"\n\nSave the document to: {output_path}"
+        else:
+            prompt += "\n\nChoose an appropriate path under ~/docs/ and save the document there."
+        prompt += "\n\nWrite the complete document and save it. Return the full content and confirm where it was saved."
         result = writer(prompt)
         return str(result)
     except Exception as e:
         return f"Error writing document: {e}"
 
-
-@tool
-def read_reference(file_path: str) -> str:
-    """Read a file to gather context for document writing.
-
-    Use this when the user mentions a file they want to reference or include
-    in the document.
-
-    Args:
-        file_path: Path to the file to read (supports ~ expansion).
-
-    Returns:
-        The file contents.
-    """
-    try:
-        path = Path(file_path).expanduser()
-        if not path.exists():
-            return f"File not found: {file_path}"
-        return path.read_text(encoding="utf-8")[:50000]  # Cap at 50k chars
-    except Exception as e:
-        return f"Error reading {file_path}: {e}"
 
 
 # --- Bidi Agent System Prompt ---
@@ -181,23 +160,29 @@ BIDI_SYSTEM_PROMPT = """\
 You are a document writing assistant. Your role is to help the user think through
 and write documents.
 
+## Your Tools:
+You have full access to: file_read, file_write, editor, shell, MCP tools
+(GitHub, fetch, etc.), and write_document (delegates to a powerful writer agent).
+
 ## Your Workflow:
 1. EXPLORE: Ask questions to understand what the user wants to write. What's the
    topic? Who's the audience? What's the goal? What style?
-2. GATHER: Help the user identify references - files to read, links to include,
-   data to reference. Use read_reference to pull in file contents.
+2. GATHER: Use file_read to pull in files the user references. Use MCP tools
+   to look up GitHub PRs, issues, web pages, etc.
 3. DISCUSS: Explore the user's opinions and ideas. Push back gently, suggest
    structure, identify gaps.
 4. WRITE: When the user is ready, use write_document to create the document.
-   Pass ALL the context you've gathered and the user's specific instructions.
-5. ITERATE: After writing, discuss the output. For small changes, describe them.
-   For big changes, call write_document again with updated instructions.
+   Pass the FULL conversation context as the prompt — everything discussed,
+   every file read, every opinion, every link. Do NOT summarize or abstract.
+   The writer agent needs the complete picture to produce the best document.
+5. ITERATE: After writing, discuss the output. Use file_read to read what was
+   written, use editor for small edits, or call write_document again for rewrites.
 
 ## Important:
 - Be conversational and natural. Ask one question at a time.
 - Keep your spoken responses SHORT (1-3 sentences). You're talking, not writing.
-- When calling write_document, be THOROUGH in the context you pass - include
-  everything discussed, all references, all opinions, all links.
+- When calling write_document, dump EVERYTHING into the prompt field — the full
+  conversation, all file contents, all opinions, all references. More context = better doc.
 - Don't try to write the document yourself in speech. Use the write_document tool.
 """
 
@@ -278,17 +263,11 @@ async def websocket_endpoint(websocket: WebSocket):
     logger.info("WebSocket client connected")
 
     try:
-        model = BidiNovaSonicModel(
-            model_id="amazon.nova-sonic-v1:0",
-            provider_config={
-                "audio": {"voice": "tiffany"},
-            },
-            client_config={"region": "us-east-1"},
-        )
+        model = BidiNovaSonicModel()
 
         agent = BidiAgent(
             model=model,
-            tools=[write_document, read_reference, stop_conversation],
+            tools=[file_read, file_write, editor, shell, write_document, stop_conversation] + _mcp_clients,
             system_prompt=BIDI_SYSTEM_PROMPT,
         )
 
