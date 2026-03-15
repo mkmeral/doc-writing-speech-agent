@@ -2,7 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>Doc Writer — Bidi Agent</title>
   <style>
     :root {
@@ -25,8 +27,10 @@
       background: var(--bg);
       color: var(--text);
       height: 100vh;
+      height: 100dvh;
       display: flex;
       flex-direction: column;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
 
     header {
@@ -169,7 +173,36 @@
     .btn-mic { background: var(--green); color: #fff; }
     .btn-mic.recording { background: var(--red); animation: pulse 0.8s infinite; }
 
-    @media (max-width: 900px) { .sidebar { display: none; } }
+    @media (max-width: 900px) {
+      .sidebar { display: none; }
+    }
+
+    @media (max-width: 600px) {
+      header { padding: 10px 12px; }
+      header h1 { font-size: 16px; }
+
+      .messages { padding: 12px; }
+
+      .msg { max-width: 95%; }
+
+      .input-area {
+        padding: 8px 12px;
+        gap: 6px;
+      }
+      .input-area textarea {
+        padding: 8px 10px;
+        font-size: 16px; /* prevents iOS zoom on focus */
+        min-height: 38px;
+      }
+      .input-area button {
+        padding: 8px 12px;
+        font-size: 13px;
+      }
+
+      .tool-header { font-size: 12px; padding: 6px 10px; }
+      .tool-details { font-size: 11px; padding: 6px 10px; }
+      .tool-details pre { font-size: 11px; }
+    }
   </style>
 </head>
 <body>
