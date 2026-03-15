@@ -23,9 +23,10 @@ import json
 import logging
 import os
 import sys
+import uuid
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
@@ -34,9 +35,10 @@ from strands import Agent, tool
 from strands.experimental.bidi import BidiAgent
 from strands.experimental.bidi.models import BidiNovaSonicModel
 from strands.experimental.bidi.tools import stop_conversation
-from strands.experimental.bidi.types.events import BidiOutputEvent
+from strands.experimental.bidi.types.events import BidiAudioInputEvent, BidiOutputEvent, BidiTextInputEvent
 from strands.experimental.bidi.types.io import BidiInput, BidiOutput
 from strands.models.bedrock import BedrockModel
+from strands.session.file_session_manager import FileSessionManager
 
 # MCP imports
 from mcp import stdio_client, StdioServerParameters
@@ -49,6 +51,35 @@ logger = logging.getLogger(__name__)
 
 # --- MCP Config ---
 DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG_PATH", str(Path.home() / ".kiro" / "settings" / "mcp.json"))
+SESSIONS_DIR = Path(os.getenv("SESSIONS_DIR", str(Path(__file__).parent / "sessions")))
+SESSIONS_DIR.mkdir(exist_ok=True)
+
+
+def _notebook_path(session_id: str) -> Path:
+    """Get the notebook file path for a session."""
+    session_dir = SESSIONS_DIR / session_id
+    session_dir.mkdir(parents=True, exist_ok=True)
+    return session_dir / "notebook.json"
+
+
+def _load_notebook(session_id: str) -> list[dict[str, str]]:
+    """Load notebook entries from disk."""
+    path = _notebook_path(session_id)
+    if path.exists():
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Failed to load notebook for session {session_id}: {e}")
+    return []
+
+
+def _save_notebook(session_id: str, entries: list[dict[str, str]]) -> None:
+    """Save notebook entries to disk."""
+    path = _notebook_path(session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(entries, f, indent=2)
 
 
 def load_mcp_config(config_path: str | None = None) -> dict:
@@ -156,11 +187,12 @@ def use_agent(prompt: str) -> str:
 
 
 # --- Shared Notebook ---
-# Per-session notebook: list of entries. The active websocket is stored so the
-# notebook tool can push updates to the UI in real time.
+# Per-session notebook: list of entries. The active websocket and session_id are
+# stored so the notebook tool can push updates to the UI and persist to disk.
 
 _notebook_entries: list[dict[str, str]] = []
 _active_websocket: WebSocket | None = None
+_active_session_id: str | None = None
 
 
 @tool
@@ -193,11 +225,14 @@ def notebook(action: str, category: str = "", content: str = "") -> str:
     Returns:
         Confirmation or the full notebook contents.
     """
-    global _notebook_entries, _active_websocket
+    global _notebook_entries, _active_websocket, _active_session_id
 
     if action == "add":
         entry = {"category": category, "content": content}
         _notebook_entries.append(entry)
+        # Persist to disk
+        if _active_session_id:
+            _save_notebook(_active_session_id, _notebook_entries)
         # Push update to UI
         if _active_websocket:
             try:
@@ -221,6 +256,9 @@ def notebook(action: str, category: str = "", content: str = "") -> str:
 
     elif action == "clear":
         _notebook_entries = []
+        # Persist to disk
+        if _active_session_id:
+            _save_notebook(_active_session_id, _notebook_entries)
         if _active_websocket:
             try:
                 asyncio.get_event_loop().create_task(
@@ -291,7 +329,7 @@ BIDI_SYSTEM_PROMPT = os.getenv("BIDI_SYSTEM_PROMPT", DEFAULT_BIDI_SYSTEM_PROMPT)
 # --- WebSocket I/O ---
 
 class WebSocketBidiInput(BidiInput):
-    """Read text input from WebSocket client."""
+    """Read text and audio input from WebSocket client."""
 
     def __init__(self, websocket: WebSocket):
         self.websocket = websocket
@@ -304,7 +342,24 @@ class WebSocketBidiInput(BidiInput):
         while self._running:
             try:
                 data = await self.websocket.receive_json()
-                return data
+                msg_type = data.get("type", "")
+
+                if msg_type == "bidi_audio_input":
+                    return BidiAudioInputEvent(
+                        audio=data["audio"],
+                        format=data.get("format", "pcm"),
+                        sample_rate=data.get("sample_rate", 16000),
+                        channels=data.get("channels", 1),
+                    )
+                elif msg_type == "bidi_text_input":
+                    return BidiTextInputEvent(
+                        text=data["text"],
+                        role=data.get("role", "user"),
+                    )
+                else:
+                    logger.warning(f"Unknown input type: {msg_type}")
+                    continue
+
             except WebSocketDisconnect:
                 self._running = False
                 raise
@@ -358,21 +413,41 @@ async def index():
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    global _active_websocket, _notebook_entries
+async def websocket_endpoint(websocket: WebSocket, session_id: str = Query(default=None)):
+    global _active_websocket, _notebook_entries, _active_session_id
     await websocket.accept()
-    logger.info("WebSocket client connected")
 
+    # Generate or reuse session ID
+    if not session_id:
+        session_id = str(uuid.uuid4())[:8]
+
+    _active_session_id = session_id
     _active_websocket = websocket
-    _notebook_entries = []
+    _notebook_entries = _load_notebook(session_id)
+
+    logger.info(f"WebSocket client connected — session={session_id}")
+
+    # Send session info + restored notebook to client
+    try:
+        await websocket.send_json({"type": "session_info", "session_id": session_id})
+        if _notebook_entries:
+            await websocket.send_json({"type": "notebook_update", "entries": _notebook_entries})
+    except Exception:
+        pass
 
     try:
         model = BidiNovaSonicModel()
+
+        session_manager = FileSessionManager(
+            session_id=session_id,
+            storage_dir=str(SESSIONS_DIR),
+        )
 
         agent = BidiAgent(
             model=model,
             tools=[file_read, file_write, editor, shell, use_github, notebook, use_agent, stop_conversation] + _mcp_clients,
             system_prompt=BIDI_SYSTEM_PROMPT,
+            session_manager=session_manager,
         )
 
         ws_input = WebSocketBidiInput(websocket)
@@ -381,15 +456,44 @@ async def websocket_endpoint(websocket: WebSocket):
         await agent.run(inputs=[ws_input], outputs=[ws_output])
 
     except WebSocketDisconnect:
-        logger.info("WebSocket client disconnected")
+        logger.info(f"WebSocket client disconnected — session={session_id}")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
         _active_websocket = None
+        _active_session_id = None
         try:
             await websocket.close()
         except Exception:
             pass
+
+
+@app.get("/api/sessions")
+async def list_sessions():
+    """List all sessions with metadata."""
+    sessions = []
+    for session_dir in sorted(SESSIONS_DIR.iterdir(), key=lambda p: p.stat().st_mtime, reverse=True):
+        if not session_dir.is_dir():
+            continue
+        sid = session_dir.name
+        nb = _load_notebook(sid)
+        # Extract a label from notebook topics if available
+        topics = [e["content"] for e in nb if e.get("category") == "topic"]
+        sessions.append({
+            "session_id": sid,
+            "label": topics[0] if topics else sid,
+            "notebook_count": len(nb),
+            "modified": session_dir.stat().st_mtime,
+        })
+    return {"sessions": sessions}
+
+
+@app.post("/api/sessions")
+async def create_session():
+    """Create a new session and return its ID."""
+    session_id = str(uuid.uuid4())[:8]
+    (SESSIONS_DIR / session_id).mkdir(parents=True, exist_ok=True)
+    return {"session_id": session_id}
 
 
 @app.on_event("startup")

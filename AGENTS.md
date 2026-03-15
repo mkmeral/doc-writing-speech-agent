@@ -57,6 +57,7 @@ The Bidi Agent accumulates context through conversation and tool use, then passe
 | `AWS_DEFAULT_REGION` | AWS region for Bedrock (Opus) | us-west-2 |
 | `GITHUB_TOKEN` | GitHub personal access token for `use_github` tool | — |
 | `BYPASS_TOOL_CONSENT` | Skip confirmation for GitHub mutations | `false` |
+| `SESSIONS_DIR` | Directory for session storage | `./sessions/` |
 
 ## Infrastructure
 
@@ -64,3 +65,25 @@ The Bidi Agent accumulates context through conversation and tool use, then passe
 - **UI:** Single-page HTML/JS app (`static/index.html`) with text chat and microphone input
 - **MCP:** Shared MCP clients initialized at startup from MCP config
 - **Dependencies:** `strands-agents[bidi]`, `strands-agents-tools`, `fastapi`, `uvicorn`, `websockets`, `requests`
+
+## Session Management
+
+Sessions persist conversation history and notebook entries across page refreshes and server restarts.
+
+- **Session ID:** Short UUID (8 chars), passed as `?session_id=` query param on the WebSocket URL and stored in the URL hash for bookmarkability.
+- **Conversation history:** Managed by Strands `FileSessionManager` — automatically persists messages, tool calls, and agent state.
+- **Notebook:** Persisted as `notebook.json` per session directory.
+- **UI:** Session picker overlay on load — lists existing sessions (labeled by first topic note) or creates new ones. Session badge in header allows switching.
+- **REST API:**
+  - `GET /api/sessions` — list all sessions with metadata
+  - `POST /api/sessions` — create a new session
+
+Storage structure:
+```
+sessions/
+└── <session_id>/
+    ├── notebook.json
+    └── session_<session_id>/   (managed by FileSessionManager)
+        ├── session.json
+        └── agents/
+```

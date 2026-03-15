@@ -44,12 +44,18 @@
 
     header h1 { font-size: 18px; font-weight: 600; }
 
+    .header-left { display: flex; align-items: center; gap: 12px; }
+
+    .session-badge {
+      font-size: 11px; color: var(--muted); background: var(--bg);
+      padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
+      cursor: pointer;
+    }
+    .session-badge:hover { border-color: var(--accent); color: var(--accent); }
+
     .status {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 13px;
-      color: var(--muted);
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: var(--muted);
     }
 
     .status-dot {
@@ -62,14 +68,53 @@
 
     .main { flex: 1; display: flex; overflow: hidden; }
 
+    /* Session picker overlay */
+    .session-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .session-overlay.hidden { display: none; }
+
+    .session-picker {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 24px; width: 400px; max-width: 90vw;
+      max-height: 70vh; display: flex; flex-direction: column;
+    }
+    .session-picker h2 { font-size: 18px; margin-bottom: 16px; }
+
+    .session-list {
+      flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;
+      margin-bottom: 16px; max-height: 300px;
+    }
+
+    .session-item {
+      padding: 10px 14px; border-radius: 8px; background: var(--bg);
+      border: 1px solid var(--border); cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .session-item:hover { border-color: var(--accent); }
+    .session-item .label { font-size: 14px; font-weight: 500; }
+    .session-item .meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    .session-empty {
+      color: var(--muted); font-size: 13px; text-align: center; padding: 20px;
+    }
+
+    .btn-new-session {
+      padding: 10px 16px; border-radius: 8px; border: none;
+      background: var(--accent); color: #fff; font-size: 14px;
+      font-weight: 600; cursor: pointer; width: 100%;
+    }
+    .btn-new-session:hover { opacity: 0.85; }
+
     /* Chat panel */
     .chat-panel { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
     .messages { flex: 1; overflow-y: auto; padding: 16px 24px; }
 
     .msg {
-      margin-bottom: 12px;
-      max-width: 85%;
+      margin-bottom: 12px; max-width: 85%;
       animation: fadeIn 0.2s ease;
     }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
@@ -88,9 +133,7 @@
       white-space: pre-wrap; word-break: break-word;
     }
 
-    .msg.user .msg-body {
-      background: #1f6feb; border-bottom-right-radius: 4px;
-    }
+    .msg.user .msg-body { background: #1f6feb; border-bottom-right-radius: 4px; }
     .msg.assistant .msg-body {
       background: var(--surface); border: 1px solid var(--border);
       border-bottom-left-radius: 4px;
@@ -133,9 +176,7 @@
       width: 360px; border-left: 1px solid var(--border);
       display: flex; flex-direction: column; background: var(--surface);
     }
-    .sidebar-tabs {
-      display: flex; border-bottom: 1px solid var(--border);
-    }
+    .sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); }
     .sidebar-tab {
       flex: 1; padding: 10px 12px; background: none; border: none;
       color: var(--muted); font-size: 13px; font-weight: 600;
@@ -212,25 +253,13 @@
     @media (max-width: 600px) {
       header { padding: 10px 12px; }
       header h1 { font-size: 16px; }
-
       .messages { padding: 12px; }
-
       .msg { max-width: 95%; }
-
-      .input-area {
-        padding: 8px 12px;
-        gap: 6px;
-      }
+      .input-area { padding: 8px 12px; gap: 6px; }
       .input-area textarea {
-        padding: 8px 10px;
-        font-size: 16px; /* prevents iOS zoom on focus */
-        min-height: 38px;
+        padding: 8px 10px; font-size: 16px; min-height: 38px;
       }
-      .input-area button {
-        padding: 8px 12px;
-        font-size: 13px;
-      }
-
+      .input-area button { padding: 8px 12px; font-size: 13px; }
       .tool-header { font-size: 12px; padding: 6px 10px; }
       .tool-details { font-size: 11px; padding: 6px 10px; }
       .tool-details pre { font-size: 11px; }
@@ -240,7 +269,10 @@
 <body>
 
 <header>
-  <h1>📝 Doc Writer</h1>
+  <div class="header-left">
+    <h1>📝 Doc Writer</h1>
+    <span class="session-badge" id="sessionBadge" onclick="showSessionPicker()" title="Switch session"></span>
+  </div>
   <div class="status">
     <div class="status-dot" id="statusDot"></div>
     <span id="statusText">Disconnected</span>
@@ -251,7 +283,7 @@
   <div class="chat-panel">
     <div class="messages" id="messages">
       <div class="msg system">
-        <div class="msg-body">Connect to start a conversation. The agent will help you think through and write documents.</div>
+        <div class="msg-body">Select or create a session to begin.</div>
       </div>
     </div>
 
@@ -281,42 +313,98 @@
   </div>
 </div>
 
+<!-- Session Picker Overlay -->
+<div class="session-overlay" id="sessionOverlay">
+  <div class="session-picker">
+    <h2>📂 Sessions</h2>
+    <div class="session-list" id="sessionList">
+      <div class="session-empty">Loading...</div>
+    </div>
+    <button class="btn-new-session" onclick="createNewSession()">+ New Session</button>
+  </div>
+</div>
+
 <script>
-  const WS_URL = `ws://${window.location.host}/ws`;
+  const WS_URL_BASE = `ws://${window.location.host}/ws`;
   let ws = null;
   let isRecording = false;
+  let currentSessionId = null;
 
-  // SEPARATE contexts: one for mic capture, one for playback
-  // This avoids the DOMException sample-rate mismatch
+  // Audio contexts
   let micContext = null;
   let micStream = null;
   let micProcessor = null;
   let micSource = null;
-
   let playbackContext = null;
   let nextPlayTime = 0;
 
+  // --- Session Management ---
+  async function loadSessions() {
+    try {
+      const res = await fetch('/api/sessions');
+      const data = await res.json();
+      const list = document.getElementById('sessionList');
+
+      if (!data.sessions.length) {
+        list.innerHTML = '<div class="session-empty">No sessions yet. Create one to get started.</div>';
+        return;
+      }
+
+      list.innerHTML = data.sessions.map(s => {
+        const date = new Date(s.modified * 1000).toLocaleString();
+        return `<div class="session-item" onclick="joinSession('${s.session_id}')">
+          <div class="label">${escapeHtml(s.label)}</div>
+          <div class="meta">${s.notebook_count} notes · ${date}</div>
+        </div>`;
+      }).join('');
+    } catch (e) {
+      console.error('Failed to load sessions:', e);
+    }
+  }
+
+  async function createNewSession() {
+    try {
+      const res = await fetch('/api/sessions', { method: 'POST' });
+      const data = await res.json();
+      joinSession(data.session_id);
+    } catch (e) {
+      console.error('Failed to create session:', e);
+    }
+  }
+
+  function joinSession(sessionId) {
+    currentSessionId = sessionId;
+    window.location.hash = sessionId;
+    document.getElementById('sessionOverlay').classList.add('hidden');
+    document.getElementById('sessionBadge').textContent = `session: ${sessionId}`;
+    connect(sessionId);
+  }
+
+  function showSessionPicker() {
+    if (ws) { ws.close(); ws = null; }
+    setStatus('disconnected');
+    document.getElementById('sessionOverlay').classList.remove('hidden');
+    loadSessions();
+  }
+
   // --- Connection ---
-  function connect() {
+  function connect(sessionId) {
     setStatus('connecting');
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(`${WS_URL_BASE}?session_id=${sessionId}`);
 
     ws.onopen = () => {
       setStatus('connected');
-      addSystemMsg('Connected to doc writing agent. Start talking or typing!');
+      addSystemMsg('Connected. Start talking or typing!');
     };
 
     ws.onmessage = (evt) => {
-      try {
-        handleEvent(JSON.parse(evt.data));
-      } catch (e) {
-        console.error('Parse error:', e);
-      }
+      try { handleEvent(JSON.parse(evt.data)); }
+      catch (e) { console.error('Parse error:', e); }
     };
 
     ws.onclose = () => {
       setStatus('disconnected');
-      addSystemMsg('Disconnected. Refresh to reconnect.');
+      addSystemMsg('Disconnected. Click the session badge to reconnect.');
       if (isRecording) stopMic();
     };
 
@@ -334,6 +422,12 @@
     const type = event.type;
 
     switch (type) {
+      case 'session_info':
+        currentSessionId = event.session_id;
+        document.getElementById('sessionBadge').textContent = `session: ${event.session_id}`;
+        window.location.hash = event.session_id;
+        break;
+
       case 'bidi_connection_start':
         addSystemMsg(`Connected to ${event.model || 'model'}`);
         break;
@@ -367,7 +461,6 @@
 
       case 'bidi_interruption':
         addSystemMsg('⚡ Interrupted');
-        // Clear playback on interruption
         if (playbackContext) {
           playbackContext.close();
           playbackContext = null;
@@ -428,36 +521,27 @@
     }
   }
 
-  // --- Audio Playback (separate context) ---
+  // --- Audio Playback ---
   async function handleAudio(event) {
     if (!event.audio) return;
-
     try {
-      // Create playback context on first audio (separate from mic context)
       if (!playbackContext) {
         playbackContext = new AudioContext({ sampleRate: 16000 });
         nextPlayTime = playbackContext.currentTime;
       }
+      if (playbackContext.state === 'suspended') await playbackContext.resume();
 
-      if (playbackContext.state === 'suspended') {
-        await playbackContext.resume();
-      }
-
-      // Decode base64 -> Int16 PCM -> Float32
       const binary = atob(event.audio);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
 
       const int16 = new Int16Array(bytes.buffer);
       const float32 = new Float32Array(int16.length);
-      for (let i = 0; i < int16.length; i++) {
-        float32[i] = int16[i] / 32768.0;
-      }
+      for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768.0;
 
       const buffer = playbackContext.createBuffer(1, float32.length, 16000);
       buffer.getChannelData(0).set(float32);
 
-      // Schedule gapless playback
       const currentTime = playbackContext.currentTime;
       if (nextPlayTime < currentTime) nextPlayTime = currentTime;
 
@@ -471,25 +555,18 @@
     }
   }
 
-  // --- Microphone (separate context, downsample to 16kHz) ---
+  // --- Microphone ---
   async function toggleMic() {
-    if (!isRecording) {
-      await startMic();
-    } else {
-      stopMic();
-    }
+    if (!isRecording) await startMic();
+    else stopMic();
   }
 
   async function startMic() {
     const btn = document.getElementById('micBtn');
-
     try {
-      // Get mic stream — let browser pick native sample rate
       micStream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true }
       });
-
-      // Create a SEPARATE AudioContext for mic capture (native sample rate)
       micContext = new AudioContext();
       micSource = micContext.createMediaStreamSource(micStream);
       micProcessor = micContext.createScriptProcessor(4096, 1, 1);
@@ -500,36 +577,24 @@
 
       micProcessor.onaudioprocess = (e) => {
         if (!isRecording || !ws || ws.readyState !== WebSocket.OPEN) return;
-
         const inputData = e.inputBuffer.getChannelData(0);
-
-        // Downsample from native rate to 16kHz
         const outputLength = Math.floor(inputData.length / downsampleRatio);
         const int16Data = new Int16Array(outputLength);
-
         for (let i = 0; i < outputLength; i++) {
           const srcIdx = Math.floor(i * downsampleRatio);
           int16Data[i] = Math.max(-32768, Math.min(32767, Math.round(inputData[srcIdx] * 32768)));
         }
-
-        // Convert to base64
         const bytes = new Uint8Array(int16Data.buffer);
         let binary = '';
         for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-        const base64 = btoa(binary);
-
         ws.send(JSON.stringify({
-          type: 'bidi_audio_input',
-          audio: base64,
-          format: 'pcm',
-          sample_rate: targetRate,
-          channels: 1
+          type: 'bidi_audio_input', audio: btoa(binary),
+          format: 'pcm', sample_rate: targetRate, channels: 1
         }));
       };
 
       micSource.connect(micProcessor);
       micProcessor.connect(micContext.destination);
-
       isRecording = true;
       btn.classList.add('recording');
       btn.textContent = '⏹';
@@ -545,12 +610,10 @@
     isRecording = false;
     btn.classList.remove('recording');
     btn.textContent = '🎤';
-
     if (micProcessor) { micProcessor.disconnect(); micProcessor = null; }
     if (micSource) { micSource.disconnect(); micSource = null; }
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
     if (micContext) { micContext.close(); micContext = null; }
-
     addSystemMsg('🎤 Recording stopped');
   }
 
@@ -559,7 +622,6 @@
     const input = document.getElementById('textInput');
     const text = input.value.trim();
     if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
-
     ws.send(JSON.stringify({ type: 'bidi_text_input', text: text }));
     addMessage('user', text);
     input.value = '';
@@ -571,15 +633,12 @@
     const container = document.getElementById('messages');
     const div = document.createElement('div');
     div.className = `msg ${role}`;
-
     const label = document.createElement('div');
     label.className = 'msg-label';
     label.textContent = role === 'user' ? 'You' : 'Agent';
-
     const body = document.createElement('div');
     body.className = 'msg-body';
     body.textContent = text;
-
     div.appendChild(label);
     div.appendChild(body);
     container.appendChild(div);
@@ -612,16 +671,13 @@
     const div = document.createElement('div');
     div.className = 'tool-card';
     const inputStr = typeof input === 'object' ? JSON.stringify(input, null, 2) : String(input || '');
-
     div.innerHTML = `
       <div class="tool-header" onclick="this.nextElementSibling.classList.toggle('open')">
         <span class="icon">🔧</span>
         <span class="name">${escapeHtml(name)}</span>
         <span class="status-badge ${status}">${status}</span>
       </div>
-      <div class="tool-details">
-        <pre>${escapeHtml('Input:\n' + inputStr)}</pre>
-      </div>
+      <div class="tool-details"><pre>${escapeHtml('Input:\n' + inputStr)}</pre></div>
     `;
     container.appendChild(div);
     container.scrollTop = container.scrollHeight;
@@ -669,7 +725,6 @@
     return div.innerHTML;
   }
 
-  // Auto-resize textarea
   const textarea = document.getElementById('textInput');
   textarea.addEventListener('input', () => autoResize(textarea));
   function autoResize(el) {
@@ -690,13 +745,11 @@
   function renderNotebook(entries) {
     const container = document.getElementById('notebookEntries');
     const noNotes = document.getElementById('noNotes');
-
     if (!entries.length) {
       noNotes.style.display = 'block';
       container.style.display = 'none';
       return;
     }
-
     noNotes.style.display = 'none';
     container.style.display = 'flex';
     container.innerHTML = entries.map(e =>
@@ -706,7 +759,6 @@
       </div>`
     ).join('');
 
-    // Flash the notepad tab if not active
     const notepadTab = document.querySelector('.sidebar-tab[data-tab="notepad"]');
     if (!notepadTab.classList.contains('active')) {
       notepadTab.style.color = 'var(--green)';
@@ -714,8 +766,17 @@
     }
   }
 
-  // Auto-connect on load
-  connect();
+  // --- Init: check URL hash for session ID ---
+  (async function init() {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      // Resume existing session from URL
+      joinSession(hash);
+    } else {
+      // Show session picker
+      await loadSessions();
+    }
+  })();
 </script>
 
 </body>
