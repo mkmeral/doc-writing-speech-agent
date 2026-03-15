@@ -67,6 +67,10 @@ cat > "$MCP_DIR/mcp.json" << EOF
       "env": {
         "PERPLEXITY_API_KEY": "$PERPLEXITY_API_KEY"
       }
+    },
+    "strands-agents": {
+      "command": "uvx",
+      "args": ["strands-agents-mcp-server"]
     }
   }
 }
