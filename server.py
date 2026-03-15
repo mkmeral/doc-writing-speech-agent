@@ -19,6 +19,7 @@ analysis, multi-file edits) to a more powerful Opus 4.6 agent via use_agent.
 
 import asyncio
 import base64
+import importlib.resources
 import json
 import logging
 import os
@@ -411,8 +412,12 @@ class WebSocketBidiOutput(BidiOutput):
 app = FastAPI(title="Doc Writing Bidi Agent")
 
 # Serve static files (UI)
-STATIC_DIR = Path(__file__).parent / "static"
-STATIC_DIR.mkdir(exist_ok=True)
+# In dev: use static/ next to server.py. When pip-installed: use package data.
+_local_static = Path(__file__).parent / "static"
+if _local_static.is_dir():
+    STATIC_DIR = _local_static
+else:
+    STATIC_DIR = importlib.resources.files("static")
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
