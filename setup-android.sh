@@ -32,24 +32,8 @@ echo "==> Updating packages..."
 pkg update -y
 pkg install -y python python-pip git nodejs-lts tmux
 
-echo "==> Installing uv..."
-pip install uv
-
-echo "==> Cloning repo..."
-REPO_DIR="$HOME/doc-writing-bidi"
-if [ -d "$REPO_DIR" ]; then
-    echo "    Repo exists, pulling latest..."
-    cd "$REPO_DIR" && git pull
-else
-    git clone https://github.com/mkmeral/doc-writing-bidi.git "$REPO_DIR"
-    cd "$REPO_DIR"
-fi
-
-echo "==> Creating venv and installing..."
-uv venv .venv
-source .venv/bin/activate
-uv pip install -e .
-uv pip install requests
+echo "==> Installing doc-writing-bidi..."
+pip install "git+https://github.com/mkmeral/doc-writing-bidi.git" requests
 
 # ============================================================
 # MCP CONFIG
@@ -83,15 +67,13 @@ echo "==> Starting server in tmux session 'bidi'..."
 tmux kill-session -t bidi 2>/dev/null || true
 
 tmux new-session -d -s bidi "\
-  cd $REPO_DIR && \
-  source .venv/bin/activate && \
   export GITHUB_TOKEN='$GITHUB_TOKEN' && \
   export AWS_BEARER_TOKEN_BEDROCK='$AWS_BEARER_TOKEN_BEDROCK' && \
   export AWS_DEFAULT_REGION='$AWS_DEFAULT_REGION' && \
   export MCP_CONFIG_PATH='$MCP_DIR/mcp.json' && \
   export BYPASS_TOOL_CONSENT='true' && \
   export AGENT_CONTEXT='$AGENT_CONTEXT' && \
-  python -m uvicorn server:app --host 0.0.0.0 --port 8888 && \
+  doc-writer && \
   bash"
 
 echo ""
