@@ -18,6 +18,7 @@ analysis, multi-file edits) to a more powerful Opus 4.6 agent via use_agent.
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -141,11 +142,97 @@ def use_agent(prompt: str) -> str:
     """
     try:
         agent = get_agent()
+        # Automatically include notebook contents for context
+        if _notebook_entries:
+            nb_lines = [f"- [{e['category']}] {e['content']}" for e in _notebook_entries]
+            notebook_context = "\n\n--- NOTEBOOK (shared context from conversation) ---\n" + "\n".join(nb_lines) + "\n--- END NOTEBOOK ---\n"
+            prompt = notebook_context + "\n" + prompt
         result = agent(prompt)
         return str(result)
     except Exception as e:
         return f"Error from agent: {e}"
 
+
+
+# --- Shared Notebook ---
+# Per-session notebook: list of entries. The active websocket is stored so the
+# notebook tool can push updates to the UI in real time.
+
+_notebook_entries: list[dict[str, str]] = []
+_active_websocket: WebSocket | None = None
+
+
+@tool
+def notebook(action: str, category: str = "", content: str = "") -> str:
+    """Manage the shared notebook — a running scratchpad for tracking what to write.
+
+    Use this to keep notes throughout the conversation. The notebook is shared with
+    the Opus agent when you call use_agent, so it has full context.
+
+    Actions:
+        - "add": Add a new entry. Requires category and content.
+        - "read": Return all notebook entries.
+        - "clear": Clear all entries.
+
+    Categories (for "add"):
+        - "topic": What the document is about
+        - "audience": Who it's for
+        - "reference": A file, link, PR, or source read during conversation
+        - "decision": Something the user decided or an opinion expressed
+        - "structure": Outline, section ideas, or organization notes
+        - "style": Tone, voice, formatting preferences
+        - "todo": Something still to figure out or look up
+        - "note": General note
+
+    Args:
+        action: One of "add", "read", "clear"
+        category: Category tag for the entry (required for "add")
+        content: The note content (required for "add")
+
+    Returns:
+        Confirmation or the full notebook contents.
+    """
+    global _notebook_entries, _active_websocket
+
+    if action == "add":
+        entry = {"category": category, "content": content}
+        _notebook_entries.append(entry)
+        # Push update to UI
+        if _active_websocket:
+            try:
+                asyncio.get_event_loop().create_task(
+                    _active_websocket.send_json({
+                        "type": "notebook_update",
+                        "entries": _notebook_entries,
+                    })
+                )
+            except Exception:
+                pass
+        return f"Added [{category}]: {content}"
+
+    elif action == "read":
+        if not _notebook_entries:
+            return "Notebook is empty."
+        lines = []
+        for i, e in enumerate(_notebook_entries, 1):
+            lines.append(f"{i}. [{e['category']}] {e['content']}")
+        return "\n".join(lines)
+
+    elif action == "clear":
+        _notebook_entries = []
+        if _active_websocket:
+            try:
+                asyncio.get_event_loop().create_task(
+                    _active_websocket.send_json({
+                        "type": "notebook_update",
+                        "entries": [],
+                    })
+                )
+            except Exception:
+                pass
+        return "Notebook cleared."
+
+    return f"Unknown action: {action}. Use 'add', 'read', or 'clear'."
 
 
 # --- Bidi Agent System Prompt ---
@@ -156,25 +243,42 @@ and write documents.
 
 ## Your Tools:
 You have full access to: file_read, file_write, editor, shell, MCP tools
-(GitHub, fetch, etc.), and use_agent (delegates tasks to a powerful Opus 4.6 agent).
+(GitHub, fetch, etc.), notebook (shared scratchpad), and use_agent (delegates
+tasks to a powerful Opus 4.6 agent).
+
+## Notebook:
+You have a notebook tool — use it actively throughout the conversation to track:
+- **topic**: What the document is about
+- **audience**: Who it's for
+- **reference**: Files, links, PRs, or sources you read
+- **decision**: User opinions, choices, and preferences
+- **structure**: Outline ideas, section plans
+- **style**: Tone, voice, formatting notes
+- **todo**: Things still to figure out
+- **note**: Anything else worth remembering
+
+Add notes as you go — don't wait. Every time you learn something important from
+the user or read a reference, jot it down. The notebook is automatically shared
+with the Opus agent when you call use_agent, so thorough notes = better output.
 
 ## Your Workflow:
-1. EXPLORE: Ask questions to understand what the user wants to write. What's the
-   topic? Who's the audience? What's the goal? What style?
+1. EXPLORE: Ask questions to understand what the user wants to write. Use notebook
+   to record topic, audience, goals as you learn them.
 2. GATHER: Use file_read to pull in files the user references. Use MCP tools
-   to look up GitHub PRs, issues, web pages, etc.
+   to look up GitHub PRs, issues, web pages, etc. Add each reference to notebook.
 3. DISCUSS: Explore the user's opinions and ideas. Push back gently, suggest
-   structure, identify gaps.
+   structure, identify gaps. Record decisions and structure ideas in notebook.
 4. WRITE: When the user is ready, use use_agent to delegate the writing task.
    Pass the FULL conversation context as the prompt — everything discussed,
-   every file read, every opinion, every link. Do NOT summarize or abstract.
-   The agent needs the complete picture to produce the best result.
+   every file read, every opinion, every link. The notebook is automatically
+   included, but still pass the full conversation context too.
 5. ITERATE: After writing, discuss the output. Use file_read to read what was
    written, use editor for small edits, or call use_agent again for rewrites.
 
 ## Important:
 - Be conversational and natural. Ask one question at a time.
 - Keep your spoken responses SHORT (1-3 sentences). You're talking, not writing.
+- Use notebook(action="add") frequently — it's your memory and the user can see it.
 - When calling use_agent, dump EVERYTHING into the prompt field — the full
   conversation, all file contents, all opinions, all references. More context = better output.
 - Don't try to write the document yourself in speech. Use the use_agent tool.
@@ -226,7 +330,6 @@ class WebSocketBidiOutput(BidiOutput):
             event_data = dict(event)
             # Handle bytes in audio data
             if "audio" in event_data and isinstance(event_data["audio"], bytes):
-                import base64
                 event_data["audio"] = base64.b64encode(event_data["audio"]).decode("utf-8")
             await self.websocket.send_json(event_data)
         except WebSocketDisconnect:
@@ -255,15 +358,19 @@ async def index():
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
+    global _active_websocket, _notebook_entries
     await websocket.accept()
     logger.info("WebSocket client connected")
+
+    _active_websocket = websocket
+    _notebook_entries = []
 
     try:
         model = BidiNovaSonicModel()
 
         agent = BidiAgent(
             model=model,
-            tools=[file_read, file_write, editor, shell, use_github, use_agent, stop_conversation] + _mcp_clients,
+            tools=[file_read, file_write, editor, shell, use_github, notebook, use_agent, stop_conversation] + _mcp_clients,
             system_prompt=BIDI_SYSTEM_PROMPT,
         )
 
@@ -277,6 +384,7 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
+        _active_websocket = None
         try:
             await websocket.close()
         except Exception:

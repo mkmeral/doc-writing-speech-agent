@@ -14,10 +14,11 @@ A bidirectional voice/text document-writing assistant. Users speak or type to a 
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
   - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
+  - `notebook` (shared scratchpad — tracks topics, references, decisions, structure)
   - `use_agent` (custom tool, delegates to Opus 4.6 subagent)
   - `stop_conversation` (bidi built-in)
   - MCP clients loaded from `~/.kiro/settings/mcp.json` (GitHub, fetch, Slack, Outlook, etc.)
-- **Interface:** WebSocket via FastAPI. Accepts `bidi_text_input` and `bidi_audio_input` (PCM 16-bit mono 16kHz). Streams transcript and audio events back.
+- **Interface:** WebSocket via FastAPI. Accepts `bidi_text_input` and `bidi_audio_input` (PCM 16-bit mono 16kHz). Streams transcript, audio, and `notebook_update` events back.
 
 ### Opus Agent (Powerful Subagent)
 
