@@ -1,5 +1,6 @@
 strands-agents[bidi]
 strands-agents-tools
+strands-perplexity
 fastapi
 uvicorn[standard]
 websockets

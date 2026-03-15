@@ -14,21 +14,24 @@ A bidirectional voice/text assistant. Users speak or type to a conversational ag
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
   - `http_request` (fetch URLs, APIs, web pages)
+  - `perplexity_search` (web search with citations via Perplexity API)
   - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
   - `notebook` (shared scratchpad — tracks topics, references, decisions, structure)
   - `use_agent` (custom tool, delegates to Opus 4.6 subagent)
   - `stop_conversation` (bidi built-in)
-  - MCP clients loaded from `~/.kiro/settings/mcp.json` (Perplexity, GitHub, fetch, Slack, Outlook, etc.)
+  - MCP clients loaded from `~/.kiro/settings/mcp.json` (optional — GitHub, fetch, Slack, Outlook, etc.)
+- **Strands Docs:** Both agents are instructed to fetch `https://strandsagents.com/llms.txt` via `http_request` when asked about Strands Agents, to get the documentation index.
 - **Interface:** WebSocket via FastAPI. Accepts `bidi_text_input` and `bidi_audio_input` (PCM 16-bit mono 16kHz). Streams transcript, audio, and `notebook_update` events back.
 
 ### Opus Agent (Powerful Subagent)
 
 - **Model:** Claude Opus 4.6 (`BedrockModel`, default region)
 - **Role:** Powerful general-purpose agent. Receives full conversation context from the Bidi Agent and executes complex tasks — writing documents, analyzing code, researching topics, making multi-file edits.
-- **System prompt:** Configurable via `AGENT_SYSTEM_PROMPT` env var. Default: senior technical writer persona, markdown output, saves to `~/docs/`.
+- **System prompt:** Configurable via `AGENT_SYSTEM_PROMPT` env var. Default: general-purpose assistant, markdown output, saves to `~/docs/`.
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
   - `http_request` (fetch URLs, APIs, web pages)
+  - `perplexity_search` (web search with citations via Perplexity API)
   - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
   - MCP clients (same config as Bidi Agent)
 - **Invocation:** Called via the `use_agent` tool (agent-as-tool pattern). Not directly user-facing.
@@ -53,13 +56,14 @@ The Bidi Agent accumulates context through conversation and tool use, then passe
 
 | Env Var | Description | Default |
 |---------|-------------|---------|
-| `BIDI_SYSTEM_PROMPT` | System prompt for the Bidi Agent | Built-in doc-writing assistant prompt |
+| `BIDI_SYSTEM_PROMPT` | System prompt for the Bidi Agent | Built-in conversational assistant prompt |
 | `AGENT_SYSTEM_PROMPT` | System prompt for the Opus Agent | Built-in general-purpose assistant prompt |
 | `AGENT_CONTEXT` | Extra context appended to both agents' system prompts | — |
-| `MCP_CONFIG_PATH` | Path to MCP server config | `~/.kiro/settings/mcp.json` |
+| `MCP_CONFIG_PATH` | Path to MCP server config (optional) | `~/.kiro/settings/mcp.json` |
 | `AWS_DEFAULT_REGION` | AWS region for Bedrock (Opus) | us-west-2 |
 | `AWS_BEARER_TOKEN_BEDROCK` | Bearer token for Bedrock auth (e.g. on mobile) | — |
 | `GITHUB_TOKEN` | GitHub personal access token for `use_github` tool | — |
+| `PERPLEXITY_API_KEY` | API key for `perplexity_search` tool | — |
 | `BYPASS_TOOL_CONSENT` | Skip confirmation for GitHub mutations | `false` |
 | `SESSIONS_DIR` | Directory for session storage | `./sessions/` |
 
@@ -67,8 +71,8 @@ The Bidi Agent accumulates context through conversation and tool use, then passe
 
 - **Server:** FastAPI + Uvicorn on port 8888
 - **UI:** Single-page HTML/JS app (`static/index.html`) with text chat and microphone input
-- **MCP:** Shared MCP clients initialized at startup from MCP config
-- **Dependencies:** `strands-agents[bidi]`, `strands-agents-tools`, `fastapi`, `uvicorn`, `websockets`, `requests`
+- **MCP:** Optional. Shared MCP clients initialized at startup from MCP config. Core functionality (web search, GitHub, file ops) works without MCP via native tools.
+- **Dependencies:** `strands-agents[bidi]`, `strands-agents-tools`, `strands-perplexity`, `fastapi`, `uvicorn`, `websockets`, `requests`
 
 ## Session Management
 

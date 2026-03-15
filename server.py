@@ -44,6 +44,7 @@ from strands.session.file_session_manager import FileSessionManager
 from mcp import stdio_client, StdioServerParameters
 from strands.tools.mcp import MCPClient
 from strands_tools import file_read, file_write, editor, shell, http_request
+from strands_perplexity import perplexity_search
 from tools.use_github import use_github
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -138,7 +139,8 @@ Rules:
 - Be thorough but concise.
 - When writing documents, save with file_write. Default path: ~/docs/.
 - Use http_request to fetch web pages, APIs, or any URL when needed.
-- You have access to file tools, GitHub, and MCP servers for additional lookups.
+- If asked about Strands Agents, fetch https://strandsagents.com/llms.txt first for the doc index.
+- You have access to file tools, GitHub, and perplexity_search for web lookups.
 """
 
 AGENT_SYSTEM_PROMPT = os.getenv("AGENT_SYSTEM_PROMPT", DEFAULT_AGENT_SYSTEM_PROMPT)
@@ -151,7 +153,7 @@ _mcp_clients: list[MCPClient] = []
 def get_agent() -> Agent:
     """Create a fresh agent (Opus 4.6) with MCP tools."""
     model = BedrockModel(model_id="global.anthropic.claude-opus-4-6-v1")
-    tools = [file_read, file_write, editor, shell, use_github, http_request]
+    tools = [file_read, file_write, editor, shell, use_github, http_request, perplexity_search]
     tools.extend(_mcp_clients)
     system_prompt = AGENT_SYSTEM_PROMPT
     if AGENT_CONTEXT:
@@ -298,9 +300,13 @@ research, coding, brainstorming, analysis, or just thinking things through.
 - file_read, file_write, editor, shell — file and system access
 - http_request — fetch any URL, API, or web page
 - use_github — query GitHub (PRs, issues, repos, etc.)
+- perplexity_search — web search with citations via Perplexity API
 - notebook — shared scratchpad to track context (topics, references, decisions, todos)
 - use_agent — delegate complex tasks to a powerful Opus 4.6 agent
-- MCP tools — additional integrations (Perplexity, Slack, etc.)
+
+## Strands Agents Docs:
+If the user asks about Strands Agents, fetch https://strandsagents.com/llms.txt
+with http_request first to get the documentation index, then fetch specific pages as needed.
 
 ## Notebook:
 Use the notebook tool proactively — don't wait for the user to ask. Every time
@@ -461,7 +467,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = Query(defau
 
             agent = BidiAgent(
                 model=model,
-                tools=[file_read, file_write, editor, shell, use_github, http_request, notebook, use_agent, stop_conversation] + _mcp_clients,
+                tools=[file_read, file_write, editor, shell, use_github, http_request, perplexity_search, notebook, use_agent, stop_conversation] + _mcp_clients,
                 system_prompt=system_prompt,
             )
 
