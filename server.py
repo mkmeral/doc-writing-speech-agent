@@ -49,6 +49,11 @@ from tools.use_github import use_github
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
 
+
+class AgentRefreshRequested(Exception):
+    """Raised by WebSocketBidiInput when the client requests an agent refresh."""
+    pass
+
 # --- MCP Config ---
 DEFAULT_MCP_CONFIG = os.getenv("MCP_CONFIG_PATH", str(Path.home() / ".kiro" / "settings" / "mcp.json"))
 SESSIONS_DIR = Path(os.getenv("SESSIONS_DIR", str(Path(__file__).parent / "sessions")))
@@ -356,11 +361,13 @@ class WebSocketBidiInput(BidiInput):
                         text=data["text"],
                         role=data.get("role", "user"),
                     )
+                elif msg_type == "refresh_agent":
+                    raise AgentRefreshRequested()
                 else:
                     logger.warning(f"Unknown input type: {msg_type}")
                     continue
 
-            except WebSocketDisconnect:
+            except (WebSocketDisconnect, AgentRefreshRequested):
                 self._running = False
                 raise
             except Exception as e:
@@ -435,37 +442,60 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = Query(defau
     except Exception:
         pass
 
-    try:
-        model = BidiNovaSonicModel()
-
-        session_manager = FileSessionManager(
-            session_id=session_id,
-            storage_dir=str(SESSIONS_DIR),
-        )
-
-        agent = BidiAgent(
-            model=model,
-            tools=[file_read, file_write, editor, shell, use_github, notebook, use_agent, stop_conversation] + _mcp_clients,
-            system_prompt=BIDI_SYSTEM_PROMPT,
-            session_manager=session_manager,
-        )
-
-        ws_input = WebSocketBidiInput(websocket)
-        ws_output = WebSocketBidiOutput(websocket)
-
-        await agent.run(inputs=[ws_input], outputs=[ws_output])
-
-    except WebSocketDisconnect:
-        logger.info(f"WebSocket client disconnected — session={session_id}")
-    except Exception as e:
-        logger.error(f"WebSocket error: {e}")
-    finally:
-        _active_websocket = None
-        _active_session_id = None
+    # Loop: create agent, run until refresh or disconnect
+    while True:
         try:
-            await websocket.close()
-        except Exception:
-            pass
+            model = BidiNovaSonicModel()
+
+            # Build system prompt — on refresh, prepend notebook context so the
+            # fresh agent starts with awareness of prior decisions.
+            system_prompt = BIDI_SYSTEM_PROMPT
+            if _notebook_entries:
+                nb_lines = [f"- [{e['category']}] {e['content']}" for e in _notebook_entries]
+                notebook_preamble = (
+                    "\n\n--- NOTEBOOK (context from prior conversation) ---\n"
+                    + "\n".join(nb_lines)
+                    + "\n--- END NOTEBOOK ---\n"
+                    + "\nThe user has refreshed the agent. You have a clean conversation but the notebook "
+                    + "above contains all prior context. Greet the user briefly and confirm you have the context.\n"
+                )
+                system_prompt = system_prompt + notebook_preamble
+
+            agent = BidiAgent(
+                model=model,
+                tools=[file_read, file_write, editor, shell, use_github, notebook, use_agent, stop_conversation] + _mcp_clients,
+                system_prompt=system_prompt,
+            )
+
+            ws_input = WebSocketBidiInput(websocket)
+            ws_output = WebSocketBidiOutput(websocket)
+
+            await agent.run(inputs=[ws_input], outputs=[ws_output])
+            break  # Normal exit (e.g. stop_conversation)
+
+        except AgentRefreshRequested:
+            logger.info(f"Agent refresh requested — session={session_id}")
+            # Reload notebook from disk in case it was updated
+            _notebook_entries = _load_notebook(session_id)
+            try:
+                await websocket.send_json({"type": "agent_refreshed", "session_id": session_id})
+            except Exception:
+                pass
+            continue  # Loop back to create fresh agent
+
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket client disconnected — session={session_id}")
+            break
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+            break
+
+    _active_websocket = None
+    _active_session_id = None
+    try:
+        await websocket.close()
+    except Exception:
+        pass
 
 
 @app.get("/api/sessions")

@@ -53,6 +53,13 @@
     }
     .session-badge:hover { border-color: var(--accent); color: var(--accent); }
 
+    .btn-refresh {
+      background: none; border: 1px solid var(--border); border-radius: 6px;
+      color: var(--muted); font-size: 14px; padding: 3px 8px; cursor: pointer;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+
     .status {
       display: flex; align-items: center; gap: 8px;
       font-size: 13px; color: var(--muted);
@@ -272,6 +279,7 @@
   <div class="header-left">
     <h1>📝 Doc Writer</h1>
     <span class="session-badge" id="sessionBadge" onclick="showSessionPicker()" title="Switch session"></span>
+    <button class="btn-refresh" id="refreshBtn" onclick="refreshAgent()" title="Refresh agent (keep notebook, clear messages)">🔄</button>
   </div>
   <div class="status">
     <div class="status-dot" id="statusDot"></div>
@@ -495,6 +503,11 @@
         renderNotebook(event.entries || []);
         break;
 
+      case 'agent_refreshed':
+        document.getElementById('messages').innerHTML = '';
+        addSystemMsg('🔄 Agent refreshed — notebook and files preserved, conversation cleared.');
+        break;
+
       default:
         console.log('Event:', type, event);
     }
@@ -615,6 +628,12 @@
     if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
     if (micContext) { micContext.close(); micContext = null; }
     addSystemMsg('🎤 Recording stopped');
+  }
+
+  // --- Agent Refresh ---
+  function refreshAgent() {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type: 'refresh_agent' }));
   }
 
   // --- Text Input ---

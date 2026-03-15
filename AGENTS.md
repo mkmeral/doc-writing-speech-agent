@@ -87,3 +87,12 @@ sessions/
         ├── session.json
         └── agents/
 ```
+
+## Agent Refresh
+
+The 🔄 button in the header refreshes the Bidi Agent without losing context:
+
+- Clears conversation messages (fresh BidiAgent, no session manager)
+- Preserves notebook entries and files on disk
+- Injects notebook contents into the system prompt so the new agent starts with full context
+- Useful when the conversation gets long/confused but you want to keep your accumulated notes
