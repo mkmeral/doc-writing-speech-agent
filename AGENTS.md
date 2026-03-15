@@ -2,7 +2,7 @@
 
 ## Overview
 
-A bidirectional voice/text document-writing assistant. Users speak or type to a conversational agent (Nova Sonic 2) through a browser, which explores their ideas, gathers context, and delegates complex tasks to a powerful subagent (Claude Opus 4.6).
+A bidirectional voice/text assistant. Users speak or type to a conversational agent (Nova Sonic 2) through a browser, which helps with research, writing, coding, brainstorming, and any task — delegating complex work to a powerful subagent (Claude Opus 4.6).
 
 ## Agents
 
@@ -13,11 +13,12 @@ A bidirectional voice/text document-writing assistant. Users speak or type to a 
 - **System prompt:** Configurable via `BIDI_SYSTEM_PROMPT` env var. Default guides a 5-step workflow — explore → gather → discuss → write → iterate. Keeps spoken responses short (1-3 sentences). Passes full unabridged conversation context to the subagent.
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
+  - `http_request` (fetch URLs, APIs, web pages)
   - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
   - `notebook` (shared scratchpad — tracks topics, references, decisions, structure)
   - `use_agent` (custom tool, delegates to Opus 4.6 subagent)
   - `stop_conversation` (bidi built-in)
-  - MCP clients loaded from `~/.kiro/settings/mcp.json` (GitHub, fetch, Slack, Outlook, etc.)
+  - MCP clients loaded from `~/.kiro/settings/mcp.json` (Perplexity, GitHub, fetch, Slack, Outlook, etc.)
 - **Interface:** WebSocket via FastAPI. Accepts `bidi_text_input` and `bidi_audio_input` (PCM 16-bit mono 16kHz). Streams transcript, audio, and `notebook_update` events back.
 
 ### Opus Agent (Powerful Subagent)
@@ -27,6 +28,7 @@ A bidirectional voice/text document-writing assistant. Users speak or type to a 
 - **System prompt:** Configurable via `AGENT_SYSTEM_PROMPT` env var. Default: senior technical writer persona, markdown output, saves to `~/docs/`.
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
+  - `http_request` (fetch URLs, APIs, web pages)
   - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
   - MCP clients (same config as Bidi Agent)
 - **Invocation:** Called via the `use_agent` tool (agent-as-tool pattern). Not directly user-facing.
@@ -52,9 +54,11 @@ The Bidi Agent accumulates context through conversation and tool use, then passe
 | Env Var | Description | Default |
 |---------|-------------|---------|
 | `BIDI_SYSTEM_PROMPT` | System prompt for the Bidi Agent | Built-in doc-writing assistant prompt |
-| `AGENT_SYSTEM_PROMPT` | System prompt for the Opus Agent | Built-in technical writer prompt |
+| `AGENT_SYSTEM_PROMPT` | System prompt for the Opus Agent | Built-in general-purpose assistant prompt |
+| `AGENT_CONTEXT` | Extra context appended to both agents' system prompts | — |
 | `MCP_CONFIG_PATH` | Path to MCP server config | `~/.kiro/settings/mcp.json` |
 | `AWS_DEFAULT_REGION` | AWS region for Bedrock (Opus) | us-west-2 |
+| `AWS_BEARER_TOKEN_BEDROCK` | Bearer token for Bedrock auth (e.g. on mobile) | — |
 | `GITHUB_TOKEN` | GitHub personal access token for `use_github` tool | — |
 | `BYPASS_TOOL_CONSENT` | Skip confirmation for GitHub mutations | `false` |
 | `SESSIONS_DIR` | Directory for session storage | `./sessions/` |

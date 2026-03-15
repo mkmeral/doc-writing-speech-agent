@@ -43,7 +43,7 @@ from strands.session.file_session_manager import FileSessionManager
 # MCP imports
 from mcp import stdio_client, StdioServerParameters
 from strands.tools.mcp import MCPClient
-from strands_tools import file_read, file_write, editor, shell
+from strands_tools import file_read, file_write, editor, shell, http_request
 from tools.use_github import use_github
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -128,21 +128,21 @@ def create_mcp_clients(mcp_config: dict) -> list[MCPClient]:
 # --- Writer Subagent (agent-as-tool) ---
 
 DEFAULT_AGENT_SYSTEM_PROMPT = """\
-You are a senior technical writer and document creator. You write clear,
-well-structured documents based on the context provided to you.
+You are a powerful general-purpose assistant (Claude Opus 4.6). You receive full
+context from a conversational agent and execute complex tasks — writing documents,
+analyzing code, researching topics, making multi-file edits, etc.
 
 Rules:
-- Write in the user's voice and style (infer from context).
-- Include all references, links, and file paths provided.
-- Use markdown formatting.
+- Infer the user's voice and style from context.
+- Use markdown formatting for documents.
 - Be thorough but concise.
-- Save the document to the specified path using file_write.
-- If no path specified, save to ~/docs/ with a descriptive filename.
-- You have access to file tools and MCP servers (GitHub, fetch, etc.)
-  to look up additional info if needed.
+- When writing documents, save with file_write. Default path: ~/docs/.
+- Use http_request to fetch web pages, APIs, or any URL when needed.
+- You have access to file tools, GitHub, and MCP servers for additional lookups.
 """
 
 AGENT_SYSTEM_PROMPT = os.getenv("AGENT_SYSTEM_PROMPT", DEFAULT_AGENT_SYSTEM_PROMPT)
+AGENT_CONTEXT = os.getenv("AGENT_CONTEXT", "")
 
 # Global MCP clients (initialized once, shared by both bidi and writer agents)
 _mcp_clients: list[MCPClient] = []
@@ -151,9 +151,12 @@ _mcp_clients: list[MCPClient] = []
 def get_agent() -> Agent:
     """Create a fresh agent (Opus 4.6) with MCP tools."""
     model = BedrockModel(model_id="global.anthropic.claude-opus-4-6-v1")
-    tools = [file_read, file_write, editor, shell, use_github]
+    tools = [file_read, file_write, editor, shell, use_github, http_request]
     tools.extend(_mcp_clients)
-    return Agent(model=model, tools=tools, system_prompt=AGENT_SYSTEM_PROMPT)
+    system_prompt = AGENT_SYSTEM_PROMPT
+    if AGENT_CONTEXT:
+        system_prompt += f"\n\n--- USER CONTEXT ---\n{AGENT_CONTEXT}\n--- END USER CONTEXT ---\n"
+    return Agent(model=model, tools=tools, system_prompt=system_prompt)
 
 
 @tool
@@ -282,50 +285,38 @@ def notebook(action: str, category: str = "", content: str = "") -> str:
 # --- Bidi Agent System Prompt ---
 
 DEFAULT_BIDI_SYSTEM_PROMPT = """\
-You are a document writing assistant. Your role is to help the user think through
-and write documents.
+You are a conversational AI assistant. You help the user with anything — writing,
+research, coding, brainstorming, analysis, or just thinking things through.
+
+## Style:
+- Talk naturally, like a smart colleague. Short sentences.
+- Keep responses to 1-3 sentences unless the user asks for detail.
+- Never produce long lists or paragraphs unprompted. Be concise.
+- Ask clarifying questions when the request is ambiguous.
 
 ## Your Tools:
-You have full access to: file_read, file_write, editor, shell, MCP tools
-(GitHub, fetch, etc.), notebook (shared scratchpad), and use_agent (delegates
-tasks to a powerful Opus 4.6 agent).
+- file_read, file_write, editor, shell — file and system access
+- http_request — fetch any URL, API, or web page
+- use_github — query GitHub (PRs, issues, repos, etc.)
+- notebook — shared scratchpad to track context (topics, references, decisions, todos)
+- use_agent — delegate complex tasks to a powerful Opus 4.6 agent
+- MCP tools — additional integrations (Perplexity, Slack, etc.)
 
 ## Notebook:
-You have a notebook tool — use it actively throughout the conversation to track:
-- **topic**: What the document is about
-- **audience**: Who it's for
-- **reference**: Files, links, PRs, or sources you read
-- **decision**: User opinions, choices, and preferences
-- **structure**: Outline ideas, section plans
-- **style**: Tone, voice, formatting notes
-- **todo**: Things still to figure out
-- **note**: Anything else worth remembering
+Use the notebook tool to jot down important context as you go — topics, references,
+decisions, todos. It persists across refreshes and is automatically shared with the
+Opus agent when you delegate tasks.
 
-Add notes as you go — don't wait. Every time you learn something important from
-the user or read a reference, jot it down. The notebook is automatically shared
-with the Opus agent when you call use_agent, so thorough notes = better output.
-
-## Your Workflow:
-1. EXPLORE: Ask questions to understand what the user wants to write. Use notebook
-   to record topic, audience, goals as you learn them.
-2. GATHER: Use file_read to pull in files the user references. Use MCP tools
-   to look up GitHub PRs, issues, web pages, etc. Add each reference to notebook.
-3. DISCUSS: Explore the user's opinions and ideas. Push back gently, suggest
-   structure, identify gaps. Record decisions and structure ideas in notebook.
-4. WRITE: When the user is ready, use use_agent to delegate the writing task.
-   Pass the FULL conversation context as the prompt — everything discussed,
-   every file read, every opinion, every link. The notebook is automatically
-   included, but still pass the full conversation context too.
-5. ITERATE: After writing, discuss the output. Use file_read to read what was
-   written, use editor for small edits, or call use_agent again for rewrites.
+## Delegation:
+For complex tasks (writing long documents, multi-file edits, deep analysis), use
+use_agent. Pass the FULL conversation context — everything discussed, every file
+read, every opinion. The notebook is auto-included, but pass conversation context too.
 
 ## Important:
-- Be conversational and natural. Ask one question at a time.
-- Keep your spoken responses SHORT (1-3 sentences). You're talking, not writing.
-- Use notebook(action="add") frequently — it's your memory and the user can see it.
-- When calling use_agent, dump EVERYTHING into the prompt field — the full
-  conversation, all file contents, all opinions, all references. More context = better output.
-- Don't try to write the document yourself in speech. Use the use_agent tool.
+- Be conversational. Don't lecture.
+- Use tools proactively — read files, look things up, fetch URLs.
+- Use notebook(action="add") to remember things as you learn them.
+- Don't write long documents yourself in speech. Delegate with use_agent.
 """
 
 BIDI_SYSTEM_PROMPT = os.getenv("BIDI_SYSTEM_PROMPT", DEFAULT_BIDI_SYSTEM_PROMPT)
@@ -450,6 +441,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = Query(defau
             # Build system prompt — on refresh, prepend notebook context so the
             # fresh agent starts with awareness of prior decisions.
             system_prompt = BIDI_SYSTEM_PROMPT
+            if AGENT_CONTEXT:
+                system_prompt += f"\n\n--- USER CONTEXT ---\n{AGENT_CONTEXT}\n--- END USER CONTEXT ---\n"
             if _notebook_entries:
                 nb_lines = [f"- [{e['category']}] {e['content']}" for e in _notebook_entries]
                 notebook_preamble = (
@@ -463,7 +456,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str = Query(defau
 
             agent = BidiAgent(
                 model=model,
-                tools=[file_read, file_write, editor, shell, use_github, notebook, use_agent, stop_conversation] + _mcp_clients,
+                tools=[file_read, file_write, editor, shell, use_github, http_request, notebook, use_agent, stop_conversation] + _mcp_clients,
                 system_prompt=system_prompt,
             )
 
