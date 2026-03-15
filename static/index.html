@@ -278,7 +278,7 @@
 
       case 'bidi_tool_complete':
         updateToolCard(event.tool_name, event.tool_output, event.status || 'success');
-        if (event.tool_name === 'write_document' && event.tool_output) {
+        if (event.tool_name === 'use_agent' && event.tool_output) {
           updateDocPreview(event.tool_output);
         }
         break;
@@ -320,7 +320,7 @@
           const name = event.tool_result.name || 'tool';
           const content = event.tool_result.content?.[0]?.text || JSON.stringify(event.tool_result.content);
           updateToolCard(name, content, event.tool_result.status || 'success');
-          if (name === 'write_document') updateDocPreview(content);
+          if (name === 'use_agent') updateDocPreview(content);
         }
         break;
 

@@ -10,10 +10,10 @@ A bidirectional voice/text agent for writing documents, powered by:
 Browser (WebSocket) <-> FastAPI <-> BidiAgent (Nova Sonic 2)
                                         |
                                         v
-                                  write_document (tool)
+                                  use_agent (tool)
                                         |
                                         v
-                                  Writer Agent (Opus 4.6)
+                                  Opus Agent (Opus 4.6)
                                    - file_read, file_write, editor, shell
                                    - MCP servers (GitHub, fetch, Slack, etc.)
 ```
@@ -23,8 +23,8 @@ Browser (WebSocket) <-> FastAPI <-> BidiAgent (Nova Sonic 2)
 1. **Talk or type** to the bidi agent through the web UI
 2. **Agent explores** your thinking — asks questions, gathers context
 3. **Read references** — mention files and the agent reads them
-4. **Write** — when ready, the agent calls the writer subagent with all context
-5. **Iterate** — review the doc, discuss changes, rewrite as needed
+4. **Delegate** — when ready, the agent calls `use_agent` to delegate to Opus 4.6 with all context
+5. **Iterate** — review the output, discuss changes, delegate again as needed
 
 ## Setup
 
@@ -50,6 +50,16 @@ python server.py
 
 The writer subagent loads MCP servers from `~/.kiro/settings/mcp.json`.
 This gives it access to GitHub, fetch, Slack, Outlook, etc.
+
+## Configuration
+
+System prompts are configurable via environment variables:
+
+```bash
+export BIDI_SYSTEM_PROMPT="Your custom bidi agent prompt"
+export AGENT_SYSTEM_PROMPT="Your custom opus agent prompt"
+export MCP_CONFIG_PATH="/path/to/mcp.json"
+```
 
 ## Notes
 
