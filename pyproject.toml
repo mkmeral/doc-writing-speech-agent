@@ -1,0 +1,37 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.backends"
+
+[project]
+name = "doc-writing-speech-agent"
+version = "0.1.0"
+description = "Bidirectional voice/text document-writing agent powered by Nova Sonic 2 and Claude Opus 4.6"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [
+    { name = "Murat Kaan Meral" },
+]
+dependencies = [
+    "strands-agents[bidi]",
+    "strands-agents-tools",
+    "fastapi",
+    "uvicorn[standard]",
+    "websockets",
+    "requests",
+]
+
+[project.urls]
+Homepage = "https://github.com/mkmeral/doc-writing-speech-agent"
+Repository = "https://github.com/mkmeral/doc-writing-speech-agent"
+
+[project.scripts]
+doc-writer = "server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["tools"]
+artifacts = ["static/**"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"server.py" = "server.py"
+"static" = "static"

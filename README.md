@@ -29,8 +29,11 @@ Browser (WebSocket) <-> FastAPI <-> BidiAgent (Nova Sonic 2)
 ## Setup
 
 ```bash
-# Install dependencies
-pip install -r requirements.txt
+# Install as a package (recommended)
+pip install .
+
+# Or install in editable mode for development
+pip install -e .
 
 # Make sure portaudio is installed (macOS)
 brew install portaudio
@@ -42,7 +45,12 @@ export AWS_DEFAULT_REGION=us-west-2
 ## Run
 
 ```bash
+# Via CLI entry point
+doc-writer
+
+# Or directly
 python server.py
+
 # Open http://localhost:8888
 ```
 

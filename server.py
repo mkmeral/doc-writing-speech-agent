@@ -28,6 +28,7 @@ from pathlib import Path
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+import uvicorn
 
 from strands import Agent, tool
 from strands.experimental.bidi import BidiAgent
@@ -399,6 +400,9 @@ async def startup():
     logger.info(f"Initialized {len(_mcp_clients)} MCP clients")
 
 
-if __name__ == "__main__":
-    import uvicorn
+def main():
     uvicorn.run(app, host="0.0.0.0", port=8888, log_level="info")
+
+
+if __name__ == "__main__":
+    main()
