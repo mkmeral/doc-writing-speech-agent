@@ -40,6 +40,7 @@ from strands.models.bedrock import BedrockModel
 from mcp import stdio_client, StdioServerParameters
 from strands.tools.mcp import MCPClient
 from strands_tools import file_read, file_write, editor, shell
+from tools.use_github import use_github
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -112,7 +113,7 @@ _mcp_clients: list[MCPClient] = []
 def get_agent() -> Agent:
     """Create a fresh agent (Opus 4.6) with MCP tools."""
     model = BedrockModel(model_id="global.anthropic.claude-opus-4-6-v1")
-    tools = [file_read, file_write, editor, shell]
+    tools = [file_read, file_write, editor, shell, use_github]
     tools.extend(_mcp_clients)
     return Agent(model=model, tools=tools, system_prompt=AGENT_SYSTEM_PROMPT)
 
@@ -262,7 +263,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
         agent = BidiAgent(
             model=model,
-            tools=[file_read, file_write, editor, shell, use_agent, stop_conversation] + _mcp_clients,
+            tools=[file_read, file_write, editor, shell, use_github, use_agent, stop_conversation] + _mcp_clients,
             system_prompt=BIDI_SYSTEM_PROMPT,
         )
 

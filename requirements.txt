@@ -3,3 +3,4 @@ strands-agents-tools
 fastapi
 uvicorn[standard]
 websockets
+requests

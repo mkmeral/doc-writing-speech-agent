@@ -13,6 +13,7 @@ A bidirectional voice/text document-writing assistant. Users speak or type to a 
 - **System prompt:** Configurable via `BIDI_SYSTEM_PROMPT` env var. Default guides a 5-step workflow — explore → gather → discuss → write → iterate. Keeps spoken responses short (1-3 sentences). Passes full unabridged conversation context to the subagent.
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
+  - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
   - `use_agent` (custom tool, delegates to Opus 4.6 subagent)
   - `stop_conversation` (bidi built-in)
   - MCP clients loaded from `~/.kiro/settings/mcp.json` (GitHub, fetch, Slack, Outlook, etc.)
@@ -25,6 +26,7 @@ A bidirectional voice/text document-writing assistant. Users speak or type to a 
 - **System prompt:** Configurable via `AGENT_SYSTEM_PROMPT` env var. Default: senior technical writer persona, markdown output, saves to `~/docs/`.
 - **Tools:**
   - `file_read`, `file_write`, `editor`, `shell` (strands-agents-tools)
+  - `use_github` (GitHub GraphQL API tool, requires `GITHUB_TOKEN`)
   - MCP clients (same config as Bidi Agent)
 - **Invocation:** Called via the `use_agent` tool (agent-as-tool pattern). Not directly user-facing.
 
@@ -52,10 +54,12 @@ The Bidi Agent accumulates context through conversation and tool use, then passe
 | `AGENT_SYSTEM_PROMPT` | System prompt for the Opus Agent | Built-in technical writer prompt |
 | `MCP_CONFIG_PATH` | Path to MCP server config | `~/.kiro/settings/mcp.json` |
 | `AWS_DEFAULT_REGION` | AWS region for Bedrock (Opus) | us-west-2 |
+| `GITHUB_TOKEN` | GitHub personal access token for `use_github` tool | — |
+| `BYPASS_TOOL_CONSENT` | Skip confirmation for GitHub mutations | `false` |
 
 ## Infrastructure
 
 - **Server:** FastAPI + Uvicorn on port 8888
 - **UI:** Single-page HTML/JS app (`static/index.html`) with text chat and microphone input
 - **MCP:** Shared MCP clients initialized at startup from MCP config
-- **Dependencies:** `strands-agents[bidi]`, `strands-agents-tools`, `fastapi`, `uvicorn`, `websockets`
+- **Dependencies:** `strands-agents[bidi]`, `strands-agents-tools`, `fastapi`, `uvicorn`, `websockets`, `requests`
